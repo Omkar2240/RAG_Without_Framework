@@ -1,4 +1,8 @@
 import pypdf
+import chromadb
+from chromadb.utils import embedding_functions
+import os
+import uuid
 
 # load document and extract text
 def read_pdf(file_path):
@@ -53,7 +57,47 @@ def split_text(text, chunk_size=500):
         chunks.append(' '.join(current_chunk))
         
     return chunks
-            
+
+
+
+client = chromadb.PersistentClient(path="chroma-db-no-rag")
+    
+sentence_transformer = embedding_functions.SentenceTransformerEmbeddingFunction(
+        model_name="all-MiniLM-L6-v2"
+      )
+    
+    # Create or get existing collection
+collection = client.get_or_create_collection(
+        name="documents_collection",
+        embedding_function=sentence_transformer
+    )
+
+def create_vector_store(chunks, file_name):
+    print("creating embeddings and storing in vector db")
+    
+    ids = []
+    documents = []
+    metadata = []
+    
+    for i, chunk in enumerate(chunks):
+        chunk_id = str(uuid.uuid4())  # creates unique id for each chunk
+        
+        ids.append(chunk_id)
+        documents.append(chunk)
+        
+        metadata.append({
+            "source": file_name,
+            "chunk_number" : i
+        })
+        
+    # store inside chroma
+    collection.add(
+        ids = ids,
+        documents = documents,
+        metadatas = metadata
+    )
+    
+    print(f"Saved {len(chunks)} chunks in the chroma db")          
             
         
         
@@ -62,12 +106,13 @@ def split_text(text, chunk_size=500):
 
 def main():
     pdf_path = "docs/Microsoft.pdf"
+    file_name = "Microsoft.pdf"
     pdf_text = read_pdf(pdf_path)
     print(pdf_text[:500])  # Print the first 500 characters of the PDF text
     
-    split = split_text(pdf_text)
+    chunks = split_text(pdf_text)
     
-    print(split[:10])
+    print(create_vector_store(chunks, file_name))
     
     
     
