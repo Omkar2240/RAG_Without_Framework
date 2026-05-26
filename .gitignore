@@ -1,2 +1,4 @@
 .env
 venv
+chroma-db-no-rag
+db

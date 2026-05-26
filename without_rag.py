@@ -3,8 +3,13 @@ import chromadb
 from chromadb.utils import embedding_functions
 import os
 import uuid
+from huggingface_hub import InferenceClient
+from dotenv import load_dotenv
 
-# load document and extract text
+load_dotenv()
+
+# ------------------------ Ingestion Pipline ----------------------------------
+
 def read_pdf(file_path):
     text = ""
     with open(file_path, 'rb') as file:
@@ -59,18 +64,18 @@ def split_text(text, chunk_size=500):
     return chunks
 
 
-
-client = chromadb.PersistentClient(path="chroma-db-no-rag")
+db_client = chromadb.PersistentClient(path="chroma-db-no-rag")
     
 sentence_transformer = embedding_functions.SentenceTransformerEmbeddingFunction(
         model_name="all-MiniLM-L6-v2"
       )
     
     # Create or get existing collection
-collection = client.get_or_create_collection(
+collection = db_client.get_or_create_collection(
         name="documents_collection",
         embedding_function=sentence_transformer
     )
+
 
 def create_vector_store(chunks, file_name):
     print("creating embeddings and storing in vector db")
@@ -98,22 +103,100 @@ def create_vector_store(chunks, file_name):
     )
     
     print(f"Saved {len(chunks)} chunks in the chroma db")          
-            
-        
-        
-    
 
+
+# ------------------------------ Retrival and Generation ------------------------------------            
+
+def semantic_search(query, n_results):
+    results = collection.query(
+        query_texts=[query],
+        n_results=n_results
+    )
+    
+    return results
+
+def get_context_with_sources(results):
+    
+    # Combine document chunks into a single context
+    context = "\n\n".join(results['documents'][0])
+
+    # Format sources with metadata
+    sources = [
+        f"{meta['source']} (chunk {meta['chunk_number']})" 
+        for meta in results['metadatas'][0]
+    ]
+
+    return context, sources
+
+
+
+API_KEY = os.getenv("HF_TOKEN")
+
+client = InferenceClient(api_key=API_KEY)
+
+def get_prompt(context, query):
+    
+    prompt = f"""Based on following context.Please provide the relevent and contextual response.If the answer cannot 
+    be derived from the context then say 
+    "I cannot answer this based on the provided information." 
+    
+    Context from Document: {context}
+    
+    Human: {query}
+    
+    Assistant:
+    
+    """
+    
+    return prompt
+
+def generate_response(query, context):
+    prompt = get_prompt(context, query)
+    
+    try:
+        responses = client.chat.completions.create(
+            model="meta-llama/Llama-3.1-8B-Instruct",
+            messages=[
+                {"role": "system", "content": "You are helpful assistant, who answers questions based on provided context."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0, # more focused
+            max_tokens=500
+        )
+        
+        return responses.choices[0].message.content
+    except Exception as e:
+        return f"Error generating response: {str(e)}"
+
+
+def rag_query(query,  n_chunks= 2):
+    results = semantic_search(query, n_chunks)
+    context, sources = get_context_with_sources(results)
+    
+    response = generate_response(query, context)
+    
+    return response, sources
 
 def main():
     pdf_path = "docs/Microsoft.pdf"
     file_name = "Microsoft.pdf"
     pdf_text = read_pdf(pdf_path)
-    print(pdf_text[:500])  # Print the first 500 characters of the PDF text
+    # print(pdf_text[:500])  # Print the first 500 characters of the PDF text
     
-    chunks = split_text(pdf_text)
+    # chunks = split_text(pdf_text)
     
-    print(create_vector_store(chunks, file_name))
+    # create_vector_store(chunks, file_name)
     
+    query = "Who is CEO of Microsoft?"
+    
+    response, sources = rag_query(query)
+
+    # Print results
+    print("\nQuery:", query)
+    print("\nAnswer:", response)
+    print("\nSources used:")
+    for source in sources:
+        print(f"- {source}")
     
     
 if __name__ == "__main__":
