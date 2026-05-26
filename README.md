@@ -4,6 +4,8 @@ A beginner-friendly Retrieval-Augmented Generation (RAG) pipeline built complete
 
 This project helped me understand how modern AI assistants work internally by implementing every core component manually.
 
+<img width="902" height="478" alt="image" src="https://github.com/user-attachments/assets/d6642cc8-c376-4ad1-87e1-1d653217f1f0" />
+
 ---
 
 # Features
